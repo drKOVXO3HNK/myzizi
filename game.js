@@ -1,164 +1,442 @@
-﻿const canvas = document.getElementById('game');
+const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
-const W = canvas.width, H = canvas.height;
-const blueScoreEl = document.getElementById('blueScore');
-const redScoreEl = document.getElementById('redScore');
+const W = canvas.width;
+const H = canvas.height;
 
-const TEAM = { BLUE:'blue', RED:'red', NEUTRAL:'neutral' };
-const colors = { blue:'#44a2ff', red:'#ff5b5b', neutral:'#aaa', bg:'#17212b', grid:'#223243', flagPole:'#ddd', bullet:'#ffd166' };
+const uiBlue = document.getElementById('blueScore');
+const uiRed = document.getElementById('redScore');
+const uiHint = document.getElementById('hint');
 
-const rand=(a,b)=>Math.random()*(b-a)+a;
-const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+const TEAM = { BLUE: 'blue', RED: 'red', NEUTRAL: 'neutral' };
+const C = {
+  bg: '#141b23',
+  grid: '#1f2b36',
+  text: '#d8e3ef',
+  blue: '#4aa8ff',
+  blue2: '#88c9ff',
+  red: '#ff6565',
+  red2: '#ff9f9f',
+  neutral: '#b7bdc7',
+  bulletBlue: '#8dd3ff',
+  bulletRed: '#ffb6b6',
+  factory: '#35414f',
+};
+
+const rand = (a, b) => Math.random() * (b - a) + a;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const dist2 = (a, b) => {
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  return dx * dx + dy * dy;
+};
 
 class Unit {
-  constructor(team,x,y){
-    this.team=team; this.x=x; this.y=y;
-    this.hp=100; this.r=9;
-    this.speed=1.3; this.targetPos=null; this.targetUnit=null;
-    this.reload=0;
-    this.selected=false;
+  constructor(team, x, y) {
+    this.team = team;
+    this.x = x;
+    this.y = y;
+    this.r = 8;
+    this.hp = 100;
+    this.maxHp = 100;
+    this.speed = 92; // px/s
+    this.targetPos = null;
+    this.targetUnit = null;
+    this.attackRange = 110;
+    this.fireCd = 0;
+    this.selected = false;
+    this.aiWanderCd = rand(0.4, 1.8);
   }
-  update(units){
-    if(this.reload>0) this.reload--;
-    if(this.targetUnit && this.targetUnit.hp<=0) this.targetUnit=null;
 
-    if(this.targetUnit){
-      const d=dist(this,this.targetUnit);
-      if(d>110){ this.moveToward(this.targetUnit.x,this.targetUnit.y); }
-      else if(this.reload===0){
-        this.reload=28;
-        this.targetUnit.hp -= 10;
-        bullets.push({x:this.x,y:this.y,tx:this.targetUnit.x,ty:this.targetUnit.y,t:0});
+  isEnemy(other) {
+    return other && other.hp > 0 && other.team !== this.team;
+  }
+
+  setMove(x, y) {
+    this.targetPos = { x: clamp(x, 12, W - 12), y: clamp(y, 12, H - 12) };
+    this.targetUnit = null;
+  }
+
+  setAttack(unit) {
+    this.targetUnit = unit;
+    this.targetPos = null;
+  }
+
+  update(dt, game) {
+    if (this.hp <= 0) return;
+    this.fireCd = Math.max(0, this.fireCd - dt);
+
+    if (this.targetUnit && this.targetUnit.hp <= 0) this.targetUnit = null;
+
+    // Simple AI for red team + idle blue units
+    if (!this.selected && !this.targetUnit && !this.targetPos) {
+      this.aiWanderCd -= dt;
+      if (this.aiWanderCd <= 0) {
+        this.aiWanderCd = rand(1.0, 2.4);
+        const objective = game.getObjectiveFor(this.team);
+        if (objective) this.setMove(objective.x + rand(-30, 30), objective.y + rand(-30, 30));
       }
-    } else if(this.targetPos){
-      const d=Math.hypot(this.targetPos.x-this.x,this.targetPos.y-this.y);
-      if(d<4) this.targetPos=null;
-      else this.moveToward(this.targetPos.x,this.targetPos.y);
+    }
+
+    // Auto acquire nearest enemy in range-ish
+    if (!this.targetUnit) {
+      let best = null;
+      let bestD = 180 * 180;
+      for (const u of game.units) {
+        if (!this.isEnemy(u)) continue;
+        const d = dist2(this, u);
+        if (d < bestD) {
+          bestD = d;
+          best = u;
+        }
+      }
+      if (best) this.targetUnit = best;
+    }
+
+    if (this.targetUnit) {
+      const d2 = dist2(this, this.targetUnit);
+      const inRange = d2 <= this.attackRange * this.attackRange;
+      if (!inRange) {
+        this.moveToward(this.targetUnit.x, this.targetUnit.y, dt);
+      } else if (this.fireCd <= 0) {
+        this.fireCd = 0.48;
+        const dmg = 10 + Math.floor(Math.random() * 4);
+        game.bullets.push(new Bullet(this, this.targetUnit, dmg));
+      }
+      return;
+    }
+
+    if (this.targetPos) {
+      const dx = this.targetPos.x - this.x;
+      const dy = this.targetPos.y - this.y;
+      const d = Math.hypot(dx, dy);
+      if (d < 4) {
+        this.targetPos = null;
+      } else {
+        this.x += (dx / d) * this.speed * dt;
+        this.y += (dy / d) * this.speed * dt;
+      }
+    }
+
+    this.x = clamp(this.x, this.r, W - this.r);
+    this.y = clamp(this.y, this.r, H - this.r);
+  }
+
+  moveToward(tx, ty, dt) {
+    const dx = tx - this.x;
+    const dy = ty - this.y;
+    const d = Math.hypot(dx, dy) || 1;
+    this.x += (dx / d) * this.speed * dt;
+    this.y += (dy / d) * this.speed * dt;
+  }
+
+  draw() {
+    const col = this.team === TEAM.BLUE ? C.blue : C.red;
+    const col2 = this.team === TEAM.BLUE ? C.blue2 : C.red2;
+
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+    ctx.fillStyle = col;
+    ctx.fill();
+    ctx.strokeStyle = '#0b1117';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // HP bar
+    ctx.fillStyle = '#0008';
+    ctx.fillRect(this.x - 12, this.y - 16, 24, 4);
+    ctx.fillStyle = col2;
+    ctx.fillRect(this.x - 12, this.y - 16, (24 * this.hp) / this.maxHp, 4);
+
+    if (this.selected) {
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.r + 4, 0, Math.PI * 2);
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
     }
   }
-  moveToward(tx,ty){
-    const dx=tx-this.x, dy=ty-this.y, d=Math.hypot(dx,dy)||1;
-    this.x += dx/d*this.speed;
-    this.y += dy/d*this.speed;
-    this.x = Math.max(8,Math.min(W-8,this.x));
-    this.y = Math.max(8,Math.min(H-8,this.y));
+}
+
+class Bullet {
+  constructor(from, target, dmg) {
+    this.team = from.team;
+    this.x = from.x;
+    this.y = from.y;
+    this.target = target;
+    this.dmg = dmg;
+    this.speed = 420;
+    this.dead = false;
   }
-  draw(){
-    ctx.beginPath(); ctx.arc(this.x,this.y,this.r,0,Math.PI*2);
-    ctx.fillStyle = this.team===TEAM.BLUE?colors.blue:colors.red;
+
+  update(dt) {
+    if (!this.target || this.target.hp <= 0) {
+      this.dead = true;
+      return;
+    }
+    const dx = this.target.x - this.x;
+    const dy = this.target.y - this.y;
+    const d = Math.hypot(dx, dy) || 1;
+    const step = this.speed * dt;
+    if (d <= step) {
+      this.target.hp -= this.dmg;
+      this.dead = true;
+      return;
+    }
+    this.x += (dx / d) * step;
+    this.y += (dy / d) * step;
+  }
+
+  draw() {
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, 2.2, 0, Math.PI * 2);
+    ctx.fillStyle = this.team === TEAM.BLUE ? C.bulletBlue : C.bulletRed;
     ctx.fill();
-    ctx.strokeStyle='#111'; ctx.stroke();
+  }
+}
 
-    ctx.fillStyle='#0008'; ctx.fillRect(this.x-12,this.y-16,24,4);
-    ctx.fillStyle=this.team===TEAM.BLUE?'#66c2ff':'#ff8b8b';
-    ctx.fillRect(this.x-12,this.y-16,24*(this.hp/100),4);
+class Flag {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    this.owner = TEAM.NEUTRAL;
+    this.capture = 0; // -100 red ... +100 blue
+    this.radius = 52;
+  }
 
-    if(this.selected){
-      ctx.beginPath(); ctx.arc(this.x,this.y,this.r+4,0,Math.PI*2);
-      ctx.strokeStyle='#fff'; ctx.stroke();
+  update(dt, units) {
+    let b = 0;
+    let r = 0;
+    const rr = this.radius * this.radius;
+    for (const u of units) {
+      if (u.hp <= 0) continue;
+      if (dist2(u, this) <= rr) {
+        if (u.team === TEAM.BLUE) b++;
+        else r++;
+      }
+    }
+
+    if (b !== r) {
+      this.capture += (b - r) * 28 * dt;
+      this.capture = clamp(this.capture, -100, 100);
+    }
+
+    if (this.capture >= 100) this.owner = TEAM.BLUE;
+    else if (this.capture <= -100) this.owner = TEAM.RED;
+    else if (Math.abs(this.capture) < 5 && b === 0 && r === 0) this.owner = TEAM.NEUTRAL;
+  }
+
+  draw() {
+    // zone
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+    ctx.strokeStyle = '#ffffff1f';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // pole
+    ctx.strokeStyle = '#d5dbe3';
+    ctx.beginPath();
+    ctx.moveTo(this.x, this.y + 16);
+    ctx.lineTo(this.x, this.y - 16);
+    ctx.stroke();
+
+    const col = this.owner === TEAM.BLUE ? C.blue : this.owner === TEAM.RED ? C.red : C.neutral;
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.moveTo(this.x, this.y - 16);
+    ctx.lineTo(this.x + 22, this.y - 8);
+    ctx.lineTo(this.x, this.y);
+    ctx.closePath();
+    ctx.fill();
+
+    // capture bar
+    ctx.fillStyle = '#0008';
+    ctx.fillRect(this.x - 24, this.y + 22, 48, 5);
+    if (this.capture >= 0) {
+      ctx.fillStyle = C.blue;
+      ctx.fillRect(this.x, this.y + 22, (this.capture / 100) * 24, 5);
+    } else {
+      ctx.fillStyle = C.red;
+      ctx.fillRect(this.x + (this.capture / 100) * 24, this.y + 22, Math.abs((this.capture / 100) * 24), 5);
     }
   }
 }
 
 class Factory {
-  constructor(team,x,y){ this.team=team; this.x=x; this.y=y; this.spawnCd=0; }
-  update(){
-    this.spawnCd--;
-    if(this.spawnCd<=0){
-      this.spawnCd = 240;
-      units.push(new Unit(this.team,this.x+rand(-20,20),this.y+rand(-20,20)));
+  constructor(team, x, y) {
+    this.team = team;
+    this.x = x;
+    this.y = y;
+    this.spawnCd = 1.0;
+  }
+
+  update(dt, game) {
+    this.spawnCd -= dt;
+    if (this.spawnCd <= 0) {
+      this.spawnCd = 4.2;
+      // cap total to avoid lag
+      const countTeam = game.units.filter((u) => u.team === this.team && u.hp > 0).length;
+      if (countTeam < 45) {
+        game.units.push(new Unit(this.team, this.x + rand(-16, 16), this.y + rand(-16, 16)));
+      }
     }
   }
-  draw(){
-    ctx.fillStyle = this.team===TEAM.BLUE? '#2d5e91':'#8b2f2f';
-    ctx.fillRect(this.x-22,this.y-22,44,44);
-    ctx.strokeStyle='#ddd'; ctx.strokeRect(this.x-22,this.y-22,44,44);
+
+  draw() {
+    ctx.fillStyle = C.factory;
+    ctx.fillRect(this.x - 22, this.y - 22, 44, 44);
+    ctx.strokeStyle = this.team === TEAM.BLUE ? C.blue : C.red;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(this.x - 22, this.y - 22, 44, 44);
+
+    ctx.fillStyle = this.team === TEAM.BLUE ? C.blue : C.red;
+    ctx.fillRect(this.x - 8, this.y - 8, 16, 16);
   }
 }
 
-class Flag {
-  constructor(x,y){ this.x=x; this.y=y; this.owner=TEAM.NEUTRAL; this.capture=0; }
-  update(){
-    let b=0,r=0;
-    for(const u of units){ if(u.hp<=0) continue; if(dist(u,this)<48){ if(u.team===TEAM.BLUE)b++; else r++; } }
-    if(b>r){ this.capture = Math.min(100,this.capture+0.8*(b-r)); }
-    else if(r>b){ this.capture = Math.max(-100,this.capture-0.8*(r-b)); }
+class Game {
+  constructor() {
+    this.units = [];
+    this.flags = [new Flag(330, 190), new Flag(600, 350), new Flag(870, 510)];
+    this.factories = [new Factory(TEAM.BLUE, 95, 350), new Factory(TEAM.RED, 1105, 350)];
+    this.bullets = [];
 
-    if(this.capture>=100) this.owner=TEAM.BLUE;
-    if(this.capture<=-100) this.owner=TEAM.RED;
+    this.selected = null;
+    this.blueTickets = 200;
+    this.redTickets = 200;
+    this.gameOver = false;
+
+    for (let i = 0; i < 8; i++) {
+      this.units.push(new Unit(TEAM.BLUE, 120 + rand(-28, 24), 350 + rand(-40, 40)));
+      this.units.push(new Unit(TEAM.RED, 1080 + rand(-24, 28), 350 + rand(-40, 40)));
+    }
+
+    this.bindInput();
   }
-  draw(){
-    ctx.strokeStyle=colors.flagPole; ctx.beginPath(); ctx.moveTo(this.x,this.y+16); ctx.lineTo(this.x,this.y-16); ctx.stroke();
-    const c=this.owner===TEAM.BLUE?colors.blue:this.owner===TEAM.RED?colors.red:colors.neutral;
-    ctx.fillStyle=c;
-    ctx.beginPath(); ctx.moveTo(this.x,this.y-16); ctx.lineTo(this.x+20,this.y-8); ctx.lineTo(this.x,this.y); ctx.closePath(); ctx.fill();
 
-    ctx.fillStyle='#fff';
-    ctx.fillRect(this.x-22,this.y+20,44,5);
-    ctx.fillStyle=this.capture>=0?colors.blue:colors.red;
-    ctx.fillRect(this.x,this.y+20,(this.capture/100)*22,5);
-    ctx.fillRect(this.x+(this.capture<0?this.capture/100*22:0),this.y+20,Math.abs(this.capture/100*22),5);
+  bindInput() {
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    canvas.addEventListener('mousedown', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+
+      if (e.button === 0) {
+        this.selected = null;
+        for (const u of this.units) u.selected = false;
+
+        let best = null;
+        let bestD = 99999;
+        for (const u of this.units) {
+          if (u.team !== TEAM.BLUE || u.hp <= 0) continue;
+          const d = dist2({ x, y }, u);
+          if (d < (u.r + 7) * (u.r + 7) && d < bestD) {
+            bestD = d;
+            best = u;
+          }
+        }
+        if (best) {
+          this.selected = best;
+          best.selected = true;
+        }
+      }
+
+      if (e.button === 2 && this.selected && this.selected.hp > 0) {
+        let enemy = null;
+        let bestD = 999999;
+        for (const u of this.units) {
+          if (u.team === TEAM.BLUE || u.hp <= 0) continue;
+          const d = dist2({ x, y }, u);
+          if (d < (u.r + 8) * (u.r + 8) && d < bestD) {
+            bestD = d;
+            enemy = u;
+          }
+        }
+        if (enemy) this.selected.setAttack(enemy);
+        else this.selected.setMove(x, y);
+      }
+    });
+  }
+
+  getObjectiveFor(team) {
+    // Priority: neutral flag -> enemy-owned flag -> middle
+    const own = team;
+    const neutral = this.flags.find((f) => f.owner === TEAM.NEUTRAL);
+    if (neutral) return neutral;
+
+    const enemy = this.flags.find((f) => f.owner !== own);
+    if (enemy) return enemy;
+
+    return { x: W / 2, y: H / 2 };
+  }
+
+  update(dt) {
+    if (this.gameOver) return;
+
+    for (const f of this.factories) f.update(dt, this);
+    for (const fl of this.flags) fl.update(dt, this.units);
+
+    // Ticket drain by flag control (Z-like domination)
+    const blueOwned = this.flags.filter((f) => f.owner === TEAM.BLUE).length;
+    const redOwned = this.flags.filter((f) => f.owner === TEAM.RED).length;
+    if (blueOwned > redOwned) this.redTickets = Math.max(0, this.redTickets - (blueOwned - redOwned) * dt * 2.4);
+    if (redOwned > blueOwned) this.blueTickets = Math.max(0, this.blueTickets - (redOwned - blueOwned) * dt * 2.4);
+
+    for (const u of this.units) u.update(dt, this);
+    this.units = this.units.filter((u) => u.hp > 0);
+
+    for (const b of this.bullets) b.update(dt);
+    this.bullets = this.bullets.filter((b) => !b.dead);
+
+    if (this.blueTickets <= 0 || this.redTickets <= 0) {
+      this.gameOver = true;
+      const winner = this.blueTickets > this.redTickets ? 'Синие победили!' : 'Красные победили!';
+      uiHint.textContent = `${winner} Нажми F5 для рестарта`;
+    }
+
+    uiBlue.textContent = `${Math.ceil(this.blueTickets)} (${blueOwned} флага)`;
+    uiRed.textContent = `${Math.ceil(this.redTickets)} (${redOwned} флага)`;
+  }
+
+  drawGrid() {
+    ctx.fillStyle = C.bg;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.strokeStyle = C.grid;
+    ctx.lineWidth = 1;
+    for (let x = 0; x < W; x += 40) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, H);
+      ctx.stroke();
+    }
+    for (let y = 0; y < H; y += 40) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+      ctx.stroke();
+    }
+  }
+
+  draw() {
+    this.drawGrid();
+
+    for (const fl of this.flags) fl.draw();
+    for (const f of this.factories) f.draw();
+    for (const u of this.units) u.draw();
+    for (const b of this.bullets) b.draw();
   }
 }
 
-const units=[];
-const factories=[ new Factory(TEAM.BLUE,100,350), new Factory(TEAM.RED,1100,350) ];
-const flags=[ new Flag(350,220), new Flag(600,350), new Flag(850,500) ];
-const bullets=[];
-for(let i=0;i<4;i++){ units.push(new Unit(TEAM.BLUE,120+rand(-10,20),320+rand(-35,35))); units.push(new Unit(TEAM.RED,1080+rand(-20,10),320+rand(-35,35))); }
+const game = new Game();
 
-let selected=null;
-canvas.addEventListener('contextmenu',e=>e.preventDefault());
-canvas.addEventListener('mousedown',e=>{
-  const rect=canvas.getBoundingClientRect();
-  const x=e.clientX-rect.left, y=e.clientY-rect.top;
-  if(e.button===0){
-    selected=null;
-    for(const u of units) u.selected=false;
-    for(const u of units){ if(u.team===TEAM.BLUE && u.hp>0 && dist({x,y},u)<u.r+4){ selected=u; u.selected=true; break; } }
-  }
-  if(e.button===2 && selected){
-    let enemy=null;
-    for(const u of units){ if(u.team!==TEAM.BLUE && u.hp>0 && dist({x,y},u)<u.r+5){ enemy=u; break; } }
-    if(enemy){ selected.targetUnit=enemy; selected.targetPos=null; }
-    else { selected.targetUnit=null; selected.targetPos={x,y}; }
-  }
-});
-
-function update(){
-  for(const f of factories) f.update();
-  for(const fl of flags) fl.update();
-  for(const u of units) if(u.hp>0) u.update(units);
-  for(let i=units.length-1;i>=0;i--) if(units[i].hp<=0) units.splice(i,1);
-
-  for(let i=bullets.length-1;i>=0;i--){
-    const b=bullets[i]; b.t+=0.18; if(b.t>=1){ bullets.splice(i,1); continue; }
-  }
-
-  const blueFlags=flags.filter(f=>f.owner===TEAM.BLUE).length;
-  const redFlags=flags.filter(f=>f.owner===TEAM.RED).length;
-  blueScoreEl.textContent=blueFlags;
-  redScoreEl.textContent=redFlags;
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000);
+  last = now;
+  game.update(dt);
+  game.draw();
+  requestAnimationFrame(loop);
 }
-
-function drawGrid(){
-  ctx.fillStyle=colors.bg; ctx.fillRect(0,0,W,H);
-  ctx.strokeStyle=colors.grid; ctx.lineWidth=1;
-  for(let x=0;x<W;x+=40){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
-  for(let y=0;y<H;y+=40){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
-}
-
-function draw(){
-  drawGrid();
-  for(const f of factories) f.draw();
-  for(const fl of flags) fl.draw();
-  for(const u of units) u.draw();
-
-  ctx.strokeStyle=colors.bullet; ctx.lineWidth=2;
-  for(const b of bullets){
-    const x=b.x+(b.tx-b.x)*b.t, y=b.y+(b.ty-b.y)*b.t;
-    ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x-6,y-2); ctx.stroke();
-  }
-}
-
-(function loop(){ update(); draw(); requestAnimationFrame(loop); })();
+requestAnimationFrame(loop);
