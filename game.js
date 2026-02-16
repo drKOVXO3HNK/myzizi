@@ -35,7 +35,7 @@ class Unit {
 
     if(this.targetEntity && this.targetEntity.hp<=0) this.targetEntity=null;
 
-    // AI only for red team: seek objectives and engage
+    // AI movement only for red team (blue is user-controlled)
     if(this.team===TEAM.RED && !this.targetEntity && !this.targetPos){
       this.aiCd-=dt;
       if(this.aiCd<=0){
@@ -45,8 +45,8 @@ class Unit {
       }
     }
 
-    // Red auto-acquire enemies (blue units/building)
-    if(this.team===TEAM.RED && !this.targetEntity){
+    // Auto-acquire enemies for both teams so blue still fights when in range
+    if(!this.targetEntity){
       let best=null,bestD=175*175;
       for(const e of g.getEnemyEntities(this.team)){
         if(e.hp<=0) continue;
@@ -102,6 +102,19 @@ class Building {
     this.team=team; this.x=x; this.y=y;
     this.w=64; this.h=64;
     this.maxHp=2500; this.hp=this.maxHp;
+    this.spawnCd=4.0; // base also spawns 1 unit / 4 sec
+  }
+
+  update(dt,g){
+    if(this.hp<=0) return;
+    this.spawnCd-=dt;
+    if(this.spawnCd<=0){
+      this.spawnCd=4.0;
+      const teamCount=g.units.filter(u=>u.team===this.team&&u.hp>0).length;
+      if(teamCount<100){
+        g.units.push(new Unit(this.team,this.x+rand(-20,20),this.y+rand(-20,20)));
+      }
+    }
   }
 
   draw(){
@@ -332,6 +345,7 @@ class Game{
     if(this.paused||this.gameOver) return;
 
     this.flags.forEach(f=>{ f.update(dt,this.units); f.trySpawn(dt,this); });
+    this.bases.forEach(b=>b.update(dt,this));
 
     this.units.forEach(u=>u.update(dt,this));
     this.units=this.units.filter(u=>u.hp>0);
