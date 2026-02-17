@@ -20,6 +20,16 @@ const d2=(a,b)=>{const dx=a.x-b.x,dy=a.y-b.y;return dx*dx+dy*dy;};
 function teamFill(team){ return team===TEAM.BLUE ? '#59b8ff' : '#ff6d6d'; }
 function teamStroke(team){ return team===TEAM.BLUE ? '#b7e2ff' : '#ffc0c0'; }
 
+// CC0 спрайты (Kenney)
+const spriteSoldierBlue = new Image();
+spriteSoldierBlue.src = './assets/soldier_blue.png';
+const spriteSoldierRed = new Image();
+spriteSoldierRed.src = './assets/soldier_red.png';
+const spriteTankBlue = new Image();
+spriteTankBlue.src = './assets/tank_blue.png';
+const spriteTankRed = new Image();
+spriteTankRed.src = './assets/tank_red.png';
+
 class Unit {
   constructor(team,x,y,type='infantry'){
     this.team=team; this.x=x; this.y=y;
@@ -109,70 +119,46 @@ class Unit {
   }
 
   draw(){
-    const fill = teamFill(this.team);
-    const stroke = teamStroke(this.team);
     const c2=this.team===TEAM.BLUE?C.blue2:C.red2;
 
-    ctx.save();
-    ctx.translate(this.x,this.y);
+    // тень
+    ctx.fillStyle='#00000055';
+    ctx.beginPath();
+    ctx.ellipse(this.x,this.y+8,this.type==='tank'?16:10,this.type==='tank'?6:4,0,0,Math.PI*2);
+    ctx.fill();
 
+    // выбор спрайта
+    let img=null;
+    let sz=26;
     if(this.type==='tank'){
-      // танк крутится по направлению
-      ctx.rotate(this.heading);
-
-      // тень
-      ctx.fillStyle='#00000055';
-      ctx.beginPath(); ctx.ellipse(0,7,14,5,0,0,Math.PI*2); ctx.fill();
-
-      // гусеницы
-      ctx.fillStyle='#1a1f28';
-      ctx.fillRect(-12,-7,24,5);
-      ctx.fillRect(-12,2,24,5);
-
-      // корпус
-      ctx.fillStyle=fill;
-      ctx.strokeStyle=stroke;
-      ctx.lineWidth=1.5;
-      ctx.beginPath();
-      ctx.roundRect(-9,-6,18,12,3);
-      ctx.fill();
-      ctx.stroke();
-
-      // башня
-      ctx.fillStyle=this.team===TEAM.BLUE ? '#7cc9ff' : '#ff8f8f';
-      ctx.beginPath(); ctx.arc(0,0,4.2,0,Math.PI*2); ctx.fill();
-
-      // ствол
-      ctx.fillStyle='#dfe8f4';
-      ctx.fillRect(3.5,-1.1,10,2.2);
+      img = this.team===TEAM.BLUE ? spriteTankBlue : spriteTankRed;
+      sz = 38;
     } else {
-      // пехота (аккуратный читаемый спрайт)
-      ctx.fillStyle='#00000044';
-      ctx.beginPath(); ctx.ellipse(0,7,8,3.4,0,0,Math.PI*2); ctx.fill();
-
-      // тело
-      ctx.fillStyle=fill;
-      ctx.strokeStyle=stroke;
-      ctx.lineWidth=1.2;
-      ctx.beginPath(); ctx.roundRect(-5,-4,10,12,3); ctx.fill(); ctx.stroke();
-
-      // голова
-      ctx.fillStyle=this.team===TEAM.BLUE ? '#8fd3ff' : '#ffadad';
-      ctx.beginPath(); ctx.arc(0,-7,3.5,0,Math.PI*2); ctx.fill();
-
-      // винтовка
-      ctx.fillStyle='#d8e2ef';
-      ctx.fillRect(2,-2,7,1.8);
+      img = this.team===TEAM.BLUE ? spriteSoldierBlue : spriteSoldierRed;
+      sz = 30;
     }
 
+    // рисуем только картинкой
+    ctx.save();
+    ctx.translate(this.x,this.y);
+    // Спрайты Kenney top-down обычно смотрят вверх -> +90° к нашему heading
+    ctx.rotate(this.heading + Math.PI/2);
+
+    if(img && img.complete){
+      ctx.drawImage(img,-sz/2,-sz/2,sz,sz);
+    } else {
+      // fallback
+      ctx.fillStyle=this.team===TEAM.BLUE?C.blue:C.red;
+      ctx.beginPath(); ctx.arc(0,0,this.type==='tank'?12:8,0,Math.PI*2); ctx.fill();
+    }
     ctx.restore();
 
     // hp bar
-    ctx.fillStyle='#0008'; ctx.fillRect(this.x-14,this.y-19,28,4);
-    ctx.fillStyle=c2; ctx.fillRect(this.x-14,this.y-19,28*this.hp/this.maxHp,4);
+    ctx.fillStyle='#0008'; ctx.fillRect(this.x-14,this.y-20,28,4);
+    ctx.fillStyle=c2; ctx.fillRect(this.x-14,this.y-20,28*this.hp/this.maxHp,4);
 
     if(this.selected){
-      ctx.beginPath(); ctx.arc(this.x,this.y,this.r+7,0,Math.PI*2);
+      ctx.beginPath(); ctx.arc(this.x,this.y,this.r+8,0,Math.PI*2);
       ctx.strokeStyle='#fff'; ctx.lineWidth=1.4; ctx.stroke();
     }
   }
