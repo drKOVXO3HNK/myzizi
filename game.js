@@ -141,8 +141,9 @@ class Unit {
     // рисуем только картинкой
     ctx.save();
     ctx.translate(this.x,this.y);
-    // Спрайты Kenney top-down обычно смотрят вверх -> +90° к нашему heading
-    ctx.rotate(this.heading + Math.PI/2);
+    // Новые спрайты: солдат смотрит вправо, танк под углом вверх-вправо
+    const angleOffset = this.type==='tank' ? Math.PI/4 : 0;
+    ctx.rotate(this.heading + angleOffset);
 
     if(img && img.complete){
       ctx.drawImage(img,-sz/2,-sz/2,sz,sz);
