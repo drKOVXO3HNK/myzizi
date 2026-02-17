@@ -17,12 +17,37 @@ const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const rand=(a,b)=>Math.random()*(b-a)+a;
 const d2=(a,b)=>{const dx=a.x-b.x,dy=a.y-b.y;return dx*dx+dy*dy;};
 
+// Простые внешние модельки-иконки (локальные файлы из интернета)
+const soldierIcon = new Image();
+soldierIcon.src = './assets/soldier.svg';
+const tankIcon = new Image();
+tankIcon.src = './assets/tank.svg';
+
 class Unit {
-  constructor(team,x,y){
-    this.team=team; this.x=x; this.y=y; this.r=8;
-    this.hp=100; this.maxHp=100; this.speed=92;
+  constructor(team,x,y,type='infantry'){
+    this.team=team; this.x=x; this.y=y;
+    this.type=type;
+
+    if(type==='tank'){
+      this.r=12;
+      this.hp=280; this.maxHp=280;
+      this.speed=62;
+      this.attackRange=150;
+      this.shotDamageMin=22;
+      this.shotDamageMax=30;
+      this.cooldown=0.85;
+    } else {
+      this.r=8;
+      this.hp=100; this.maxHp=100;
+      this.speed=92;
+      this.attackRange=110;
+      this.shotDamageMin=10;
+      this.shotDamageMax=14;
+      this.cooldown=0.45;
+    }
+
     this.targetPos=null; this.targetEntity=null;
-    this.attackRange=110; this.cool=0;
+    this.cool=0;
     this.selected=false; this.aiCd=rand(0.6,1.7);
   }
 
@@ -61,8 +86,9 @@ class Unit {
       if(dd>this.attackRange*this.attackRange){
         this.moveTo(this.targetEntity.x,this.targetEntity.y,dt);
       } else if(this.cool<=0){
-        this.cool=0.45;
-        g.bullets.push(new Bullet(this,this.targetEntity,10+Math.floor(Math.random()*4)));
+        this.cool=this.cooldown;
+        const dmg=this.shotDamageMin+Math.floor(Math.random()*(this.shotDamageMax-this.shotDamageMin+1));
+        g.bullets.push(new Bullet(this,this.targetEntity,dmg));
       }
       return;
     }
@@ -84,14 +110,40 @@ class Unit {
   draw(){
     const c=this.team===TEAM.BLUE?C.blue:C.red;
     const c2=this.team===TEAM.BLUE?C.blue2:C.red2;
-    ctx.beginPath(); ctx.arc(this.x,this.y,this.r,0,Math.PI*2);
-    ctx.fillStyle=c; ctx.fill(); ctx.strokeStyle='#0b1117'; ctx.stroke();
+
+    if(this.type==='tank'){
+      ctx.fillStyle=c;
+      ctx.fillRect(this.x-12,this.y-9,24,18);
+      ctx.strokeStyle='#0b1117';
+      ctx.strokeRect(this.x-12,this.y-9,24,18);
+
+      // башня
+      ctx.fillStyle=c2;
+      ctx.fillRect(this.x-5,this.y-5,10,10);
+      ctx.fillStyle='#d8dee8';
+      ctx.fillRect(this.x+4,this.y-1,10,2);
+
+      if(tankIcon.complete){
+        ctx.globalAlpha=0.23;
+        ctx.drawImage(tankIcon,this.x-9,this.y-9,18,18);
+        ctx.globalAlpha=1;
+      }
+    } else {
+      ctx.beginPath(); ctx.arc(this.x,this.y,this.r,0,Math.PI*2);
+      ctx.fillStyle=c; ctx.fill(); ctx.strokeStyle='#0b1117'; ctx.stroke();
+
+      if(soldierIcon.complete){
+        ctx.globalAlpha=0.25;
+        ctx.drawImage(soldierIcon,this.x-7,this.y-7,14,14);
+        ctx.globalAlpha=1;
+      }
+    }
 
     ctx.fillStyle='#0008'; ctx.fillRect(this.x-12,this.y-16,24,4);
     ctx.fillStyle=c2; ctx.fillRect(this.x-12,this.y-16,24*this.hp/this.maxHp,4);
 
     if(this.selected){
-      ctx.beginPath(); ctx.arc(this.x,this.y,this.r+4,0,Math.PI*2);
+      ctx.beginPath(); ctx.arc(this.x,this.y,this.r+5,0,Math.PI*2);
       ctx.strokeStyle='#fff'; ctx.stroke();
     }
   }
@@ -112,7 +164,7 @@ class Building {
       this.spawnCd=4.0;
       const teamCount=g.units.filter(u=>u.team===this.team&&u.hp>0).length;
       if(teamCount<100){
-        g.units.push(new Unit(this.team,this.x+rand(-20,20),this.y+rand(-20,20)));
+        g.units.push(new Unit(this.team,this.x+rand(-20,20),this.y+rand(-20,20),'infantry'));
       }
     }
   }
@@ -157,12 +209,14 @@ class Bullet{
 }
 
 class Flag{
-  constructor(x,y){
+  constructor(x,y,isCenter=false){
     this.x=x; this.y=y;
+    this.isCenter=isCenter;
     this.owner=TEAM.NEUTRAL;
     this.capture=0;
     this.radius=50;
-    this.spawnCd=4.0; // requested: 1 unit per 4 sec
+    this.spawnCd=4.0; // 1 пехотинец / 4 сек
+    this.tankCd=14.0; // танк на центральной точке
   }
 
   update(dt,units){
@@ -179,12 +233,26 @@ class Flag{
 
   trySpawn(dt,g){
     if(this.owner===TEAM.NEUTRAL) return;
+
+    // базовый спавн пехоты
     this.spawnCd-=dt;
     if(this.spawnCd<=0){
       this.spawnCd=4.0;
       const teamCount=g.units.filter(u=>u.team===this.owner&&u.hp>0).length;
-      if(teamCount<80){
-        g.units.push(new Unit(this.owner,this.x+rand(-14,14),this.y+rand(-14,14)));
+      if(teamCount<120){
+        g.units.push(new Unit(this.owner,this.x+rand(-14,14),this.y+rand(-14,14),'infantry'));
+      }
+    }
+
+    // танк только на центральной точке
+    if(this.isCenter){
+      this.tankCd-=dt;
+      if(this.tankCd<=0){
+        this.tankCd=14.0;
+        const tanks=g.units.filter(u=>u.team===this.owner&&u.type==='tank'&&u.hp>0).length;
+        if(tanks<6){
+          g.units.push(new Unit(this.owner,this.x+rand(-10,10),this.y+rand(-10,10),'tank'));
+        }
       }
     }
   }
@@ -210,7 +278,7 @@ class Flag{
 class Game{
   constructor(){
     this.units=[];
-    this.flags=[new Flag(330,190),new Flag(600,350),new Flag(870,510)];
+    this.flags=[new Flag(330,190,false),new Flag(600,350,true),new Flag(870,510,false)];
     this.bases=[new Building(TEAM.BLUE,90,350),new Building(TEAM.RED,1110,350)];
     this.bullets=[];
     this.gameOver=false;
@@ -221,11 +289,11 @@ class Game{
 
     // initial units
     for(let i=0;i<6;i++){
-      this.units.push(new Unit(TEAM.BLUE,150+rand(-24,24),350+rand(-30,30)));
-      this.units.push(new Unit(TEAM.RED,1050+rand(-24,24),350+rand(-30,30)));
+      this.units.push(new Unit(TEAM.BLUE,150+rand(-24,24),350+rand(-30,30),'infantry'));
+      this.units.push(new Unit(TEAM.RED,1050+rand(-24,24),350+rand(-30,30),'infantry'));
     }
 
-    uiHint.textContent='Победа: уничтожить вражескую базу. ЛКМ — выделение, ПКМ — приказ';
+    uiHint.textContent='Победа: уничтожить вражескую базу. Центр спавнит танки. ЛКМ — выделение, ПКМ — приказ';
     this.bindInput();
   }
 
@@ -355,8 +423,12 @@ class Game{
 
     const blueFlags=this.flags.filter(f=>f.owner===TEAM.BLUE).length;
     const redFlags=this.flags.filter(f=>f.owner===TEAM.RED).length;
-    uiBlue.textContent=`Флаги: ${blueFlags} | Юниты: ${this.units.filter(u=>u.team===TEAM.BLUE).length}`;
-    uiRed.textContent=`Флаги: ${redFlags} | Юниты: ${this.units.filter(u=>u.team===TEAM.RED).length}`;
+    const blueUnits=this.units.filter(u=>u.team===TEAM.BLUE).length;
+    const redUnits=this.units.filter(u=>u.team===TEAM.RED).length;
+    const blueTanks=this.units.filter(u=>u.team===TEAM.BLUE && u.type==='tank').length;
+    const redTanks=this.units.filter(u=>u.team===TEAM.RED && u.type==='tank').length;
+    uiBlue.textContent=`Флаги: ${blueFlags} | Юниты: ${blueUnits} | Танки: ${blueTanks}`;
+    uiRed.textContent=`Флаги: ${redFlags} | Юниты: ${redUnits} | Танки: ${redTanks}`;
 
     const blueBase=this.bases.find(b=>b.team===TEAM.BLUE);
     const redBase=this.bases.find(b=>b.team===TEAM.RED);
