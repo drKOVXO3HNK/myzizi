@@ -49,6 +49,7 @@ class Unit {
     this.targetPos=null; this.targetEntity=null;
     this.cool=0;
     this.selected=false; this.aiCd=rand(0.6,1.7);
+    this.heading = 0; // угол направления юнита
   }
 
   setMove(x,y){ this.targetPos={x:clamp(x,10,W-10),y:clamp(y,10,H-10)}; this.targetEntity=null; }
@@ -83,6 +84,8 @@ class Unit {
 
     if(this.targetEntity){
       const dd=d2(this,this.targetEntity);
+      const tdx=this.targetEntity.x-this.x, tdy=this.targetEntity.y-this.y;
+      if(Math.hypot(tdx,tdy)>0.001) this.heading=Math.atan2(tdy,tdx);
       if(dd>this.attackRange*this.attackRange){
         this.moveTo(this.targetEntity.x,this.targetEntity.y,dt);
       } else if(this.cool<=0){
@@ -103,47 +106,46 @@ class Unit {
 
   moveTo(tx,ty,dt){
     const dx=tx-this.x,dy=ty-this.y,d=Math.hypot(dx,dy)||1;
+    if(d>0.001) this.heading = Math.atan2(dy,dx);
     this.x=clamp(this.x+dx/d*this.speed*dt,this.r,W-this.r);
     this.y=clamp(this.y+dy/d*this.speed*dt,this.r,H-this.r);
   }
 
   draw(){
-    const c=this.team===TEAM.BLUE?C.blue:C.red;
     const c2=this.team===TEAM.BLUE?C.blue2:C.red2;
 
+    // только моделька (иконка), без старых примитивов
+    ctx.save();
+    ctx.translate(this.x,this.y);
+
     if(this.type==='tank'){
-      ctx.fillStyle=c;
-      ctx.fillRect(this.x-12,this.y-9,24,18);
-      ctx.strokeStyle='#0b1117';
-      ctx.strokeRect(this.x-12,this.y-9,24,18);
-
-      // башня
-      ctx.fillStyle=c2;
-      ctx.fillRect(this.x-5,this.y-5,10,10);
-      ctx.fillStyle='#d8dee8';
-      ctx.fillRect(this.x+4,this.y-1,10,2);
-
+      // танк крутится по направлению движения/цели
+      ctx.rotate(this.heading);
+      const sz=30;
       if(tankIcon.complete){
-        ctx.globalAlpha=0.23;
-        ctx.drawImage(tankIcon,this.x-9,this.y-9,18,18);
-        ctx.globalAlpha=1;
+        ctx.drawImage(tankIcon,-sz/2,-sz/2,sz,sz);
+      } else {
+        // fallback если иконка не загрузилась
+        ctx.fillStyle=this.team===TEAM.BLUE?C.blue:C.red;
+        ctx.fillRect(-12,-8,24,16);
       }
     } else {
-      ctx.beginPath(); ctx.arc(this.x,this.y,this.r,0,Math.PI*2);
-      ctx.fillStyle=c; ctx.fill(); ctx.strokeStyle='#0b1117'; ctx.stroke();
-
+      const sz=22;
       if(soldierIcon.complete){
-        ctx.globalAlpha=0.25;
-        ctx.drawImage(soldierIcon,this.x-7,this.y-7,14,14);
-        ctx.globalAlpha=1;
+        ctx.drawImage(soldierIcon,-sz/2,-sz/2,sz,sz);
+      } else {
+        ctx.fillStyle=this.team===TEAM.BLUE?C.blue:C.red;
+        ctx.beginPath(); ctx.arc(0,0,8,0,Math.PI*2); ctx.fill();
       }
     }
 
-    ctx.fillStyle='#0008'; ctx.fillRect(this.x-12,this.y-16,24,4);
-    ctx.fillStyle=c2; ctx.fillRect(this.x-12,this.y-16,24*this.hp/this.maxHp,4);
+    ctx.restore();
+
+    ctx.fillStyle='#0008'; ctx.fillRect(this.x-14,this.y-18,28,4);
+    ctx.fillStyle=c2; ctx.fillRect(this.x-14,this.y-18,28*this.hp/this.maxHp,4);
 
     if(this.selected){
-      ctx.beginPath(); ctx.arc(this.x,this.y,this.r+5,0,Math.PI*2);
+      ctx.beginPath(); ctx.arc(this.x,this.y,this.r+7,0,Math.PI*2);
       ctx.strokeStyle='#fff'; ctx.stroke();
     }
   }
