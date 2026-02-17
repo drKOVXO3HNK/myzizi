@@ -17,11 +17,8 @@ const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const rand=(a,b)=>Math.random()*(b-a)+a;
 const d2=(a,b)=>{const dx=a.x-b.x,dy=a.y-b.y;return dx*dx+dy*dy;};
 
-// Простые внешние модельки-иконки (локальные файлы из интернета)
-const soldierIcon = new Image();
-soldierIcon.src = './assets/soldier.svg';
-const tankIcon = new Image();
-tankIcon.src = './assets/tank.svg';
+function teamFill(team){ return team===TEAM.BLUE ? '#59b8ff' : '#ff6d6d'; }
+function teamStroke(team){ return team===TEAM.BLUE ? '#b7e2ff' : '#ffc0c0'; }
 
 class Unit {
   constructor(team,x,y,type='infantry'){
@@ -112,41 +109,71 @@ class Unit {
   }
 
   draw(){
+    const fill = teamFill(this.team);
+    const stroke = teamStroke(this.team);
     const c2=this.team===TEAM.BLUE?C.blue2:C.red2;
 
-    // только моделька (иконка), без старых примитивов
     ctx.save();
     ctx.translate(this.x,this.y);
 
     if(this.type==='tank'){
-      // танк крутится по направлению движения/цели
+      // танк крутится по направлению
       ctx.rotate(this.heading);
-      const sz=30;
-      if(tankIcon.complete){
-        ctx.drawImage(tankIcon,-sz/2,-sz/2,sz,sz);
-      } else {
-        // fallback если иконка не загрузилась
-        ctx.fillStyle=this.team===TEAM.BLUE?C.blue:C.red;
-        ctx.fillRect(-12,-8,24,16);
-      }
+
+      // тень
+      ctx.fillStyle='#00000055';
+      ctx.beginPath(); ctx.ellipse(0,7,14,5,0,0,Math.PI*2); ctx.fill();
+
+      // гусеницы
+      ctx.fillStyle='#1a1f28';
+      ctx.fillRect(-12,-7,24,5);
+      ctx.fillRect(-12,2,24,5);
+
+      // корпус
+      ctx.fillStyle=fill;
+      ctx.strokeStyle=stroke;
+      ctx.lineWidth=1.5;
+      ctx.beginPath();
+      ctx.roundRect(-9,-6,18,12,3);
+      ctx.fill();
+      ctx.stroke();
+
+      // башня
+      ctx.fillStyle=this.team===TEAM.BLUE ? '#7cc9ff' : '#ff8f8f';
+      ctx.beginPath(); ctx.arc(0,0,4.2,0,Math.PI*2); ctx.fill();
+
+      // ствол
+      ctx.fillStyle='#dfe8f4';
+      ctx.fillRect(3.5,-1.1,10,2.2);
     } else {
-      const sz=22;
-      if(soldierIcon.complete){
-        ctx.drawImage(soldierIcon,-sz/2,-sz/2,sz,sz);
-      } else {
-        ctx.fillStyle=this.team===TEAM.BLUE?C.blue:C.red;
-        ctx.beginPath(); ctx.arc(0,0,8,0,Math.PI*2); ctx.fill();
-      }
+      // пехота (аккуратный читаемый спрайт)
+      ctx.fillStyle='#00000044';
+      ctx.beginPath(); ctx.ellipse(0,7,8,3.4,0,0,Math.PI*2); ctx.fill();
+
+      // тело
+      ctx.fillStyle=fill;
+      ctx.strokeStyle=stroke;
+      ctx.lineWidth=1.2;
+      ctx.beginPath(); ctx.roundRect(-5,-4,10,12,3); ctx.fill(); ctx.stroke();
+
+      // голова
+      ctx.fillStyle=this.team===TEAM.BLUE ? '#8fd3ff' : '#ffadad';
+      ctx.beginPath(); ctx.arc(0,-7,3.5,0,Math.PI*2); ctx.fill();
+
+      // винтовка
+      ctx.fillStyle='#d8e2ef';
+      ctx.fillRect(2,-2,7,1.8);
     }
 
     ctx.restore();
 
-    ctx.fillStyle='#0008'; ctx.fillRect(this.x-14,this.y-18,28,4);
-    ctx.fillStyle=c2; ctx.fillRect(this.x-14,this.y-18,28*this.hp/this.maxHp,4);
+    // hp bar
+    ctx.fillStyle='#0008'; ctx.fillRect(this.x-14,this.y-19,28,4);
+    ctx.fillStyle=c2; ctx.fillRect(this.x-14,this.y-19,28*this.hp/this.maxHp,4);
 
     if(this.selected){
       ctx.beginPath(); ctx.arc(this.x,this.y,this.r+7,0,Math.PI*2);
-      ctx.strokeStyle='#fff'; ctx.stroke();
+      ctx.strokeStyle='#fff'; ctx.lineWidth=1.4; ctx.stroke();
     }
   }
 }
