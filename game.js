@@ -129,13 +129,13 @@ class Unit {
 
     // выбор спрайта
     let img=null;
-    let sz=26;
+    let sz=34;
     if(this.type==='tank'){
       img = this.team===TEAM.BLUE ? spriteTankBlue : spriteTankRed;
-      sz = 38;
+      sz = 52;
     } else {
       img = this.team===TEAM.BLUE ? spriteSoldierBlue : spriteSoldierRed;
-      sz = 30;
+      sz = 40;
     }
 
     // рисуем только картинкой
