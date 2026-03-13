@@ -7,6 +7,14 @@ const uiBlue = document.getElementById('blueScore');
 const uiRed = document.getElementById('redScore');
 const uiHint = document.getElementById('hint');
 const pauseBtn = document.getElementById('pauseBtn');
+const selectionInfo = document.getElementById('selectionInfo');
+const prodBlueBar = document.getElementById('prodBlue');
+const prodRedBar = document.getElementById('prodRed');
+const statusLine = document.getElementById('statusLine');
+const cmdMove = document.getElementById('cmdMove');
+const cmdAttack = document.getElementById('cmdAttack');
+const cmdStop = document.getElementById('cmdStop');
+const cmdEject = document.getElementById('cmdEject');
 
 const TEAM = { BLUE: 'blue', RED: 'red', NEUTRAL: 'neutral' };
 
@@ -352,6 +360,11 @@ class Unit {
     this.targetPos = null;
   }
 
+  stop() {
+    this.targetEntity = null;
+    this.targetPos = null;
+  }
+
   update(dt, game) {
     this.cool = Math.max(0, this.cool - dt);
     if (this.targetEntity && this.targetEntity.hp <= 0) this.targetEntity = null;
@@ -542,12 +555,15 @@ class Game {
       idxBlue: 0,
       idxRed: 0,
     };
+    this.waveCd = 42;
 
     this.setupMap();
     this.setupArmies();
     this.bindInput();
 
-    uiHint.textContent = 'Z-style: сектора, турели, захват техники. ЛКМ — рамка, ПКМ — приказ, E — высадить пилота из выбранного танка.';
+    this.commandMode = 'move';
+    uiHint.textContent = 'Z-style: сектора, турели, захват техники. ЛКМ — рамка, ПКМ — приказ, E — высадить пилота.';
+    statusLine.textContent = 'MODE: MOVE';
   }
 
   setupMap() {
@@ -617,8 +633,13 @@ class Game {
       }
       if (e.button === 2) {
         const enemy = this.findEnemyEntityAt(p.x, p.y);
-        if (enemy) this.issueAttack(enemy);
-        else this.issueMove(p.x, p.y);
+        if (enemy) {
+          this.issueAttack(enemy);
+          statusLine.textContent = 'ORDER: ATTACK';
+        } else {
+          this.issueMove(p.x, p.y);
+          statusLine.textContent = this.commandMode === 'attack' ? 'ORDER: ATTACK-MOVE' : 'ORDER: MOVE';
+        }
       }
     });
 
@@ -658,12 +679,34 @@ class Game {
     });
 
     document.addEventListener('keydown', e => {
-      if (e.key.toLowerCase() === 'e') this.ejectSelectedTanks();
+      const k = e.key.toLowerCase();
+      if (k === 'e') this.ejectSelectedTanks();
+      if (k === 's') this.stopSelected();
+      if (k === 'a') {
+        this.commandMode = 'attack';
+        statusLine.textContent = 'MODE: ATTACK';
+      }
+      if (k === 'm') {
+        this.commandMode = 'move';
+        statusLine.textContent = 'MODE: MOVE';
+      }
     });
+
+    cmdMove?.addEventListener('click', () => {
+      this.commandMode = 'move';
+      statusLine.textContent = 'MODE: MOVE';
+    });
+    cmdAttack?.addEventListener('click', () => {
+      this.commandMode = 'attack';
+      statusLine.textContent = 'MODE: ATTACK';
+    });
+    cmdStop?.addEventListener('click', () => this.stopSelected());
+    cmdEject?.addEventListener('click', () => this.ejectSelectedTanks());
 
     pauseBtn.addEventListener('click', () => {
       this.paused = !this.paused;
       pauseBtn.textContent = this.paused ? 'Продолжить' : 'Пауза';
+      statusLine.textContent = this.paused ? 'PAUSED' : `MODE: ${this.commandMode.toUpperCase()}`;
     });
   }
 
@@ -676,6 +719,12 @@ class Game {
     }
     this.units = this.units.filter(u => u.hp > 0);
     this.clearSelection();
+    if (tanks.length) statusLine.textContent = `EJECTED: ${tanks.length}`;
+  }
+
+  stopSelected() {
+    for (const u of this.selected) u.stop();
+    if (this.selected.length) statusLine.textContent = `STOP: ${this.selected.length}`;
   }
 
   spawnImpact(x, y, color) {
@@ -770,6 +819,21 @@ class Game {
     return team === TEAM.BLUE ? { x: this.baseRed.x, y: this.baseRed.y } : { x: this.baseBlue.x, y: this.baseBlue.y };
   }
 
+  spawnReinforcements() {
+    const redCount = this.units.filter(u => u.team === TEAM.RED && u.hp > 0).length;
+    const blueCount = this.units.filter(u => u.team === TEAM.BLUE && u.hp > 0).length;
+
+    if (redCount < 70) {
+      this.units.push(new Unit(TEAM.RED, this.baseRed.x + rand(-18, 18), this.baseRed.y + rand(-40, 40), 'tank'));
+      this.units.push(new Unit(TEAM.RED, this.baseRed.x + rand(-18, 18), this.baseRed.y + rand(-40, 40), 'rocketeer'));
+      statusLine.textContent = 'ENEMY REINFORCEMENTS INBOUND';
+    }
+
+    if (blueCount < 60) {
+      this.units.push(new Unit(TEAM.BLUE, this.baseBlue.x + rand(-18, 18), this.baseBlue.y + rand(-40, 40), 'rocketeer'));
+    }
+  }
+
   updateProduction(dt) {
     const blueSectors = this.sectors.filter(s => s.owner === TEAM.BLUE).length;
     const redSectors = this.sectors.filter(s => s.owner === TEAM.RED).length;
@@ -802,6 +866,12 @@ class Game {
     for (const s of this.sectors) s.update(dt, this.units);
     this.updateProduction(dt);
 
+    this.waveCd -= dt;
+    if (this.waveCd <= 0) {
+      this.waveCd = 42;
+      this.spawnReinforcements();
+    }
+
     this.baseBlue.update(dt, this);
     this.baseRed.update(dt, this);
 
@@ -824,8 +894,24 @@ class Game {
     const blueSectors = this.sectors.filter(s => s.owner === TEAM.BLUE).length;
     const redSectors = this.sectors.filter(s => s.owner === TEAM.RED).length;
 
-    uiBlue.textContent = `Сектора: ${blueSectors} | Юниты: ${blueUnits} | Форт: ${Math.max(0, Math.floor(this.baseBlue.hp))}`;
-    uiRed.textContent = `Сектора: ${redSectors} | Юниты: ${redUnits} | Форт: ${Math.max(0, Math.floor(this.baseRed.hp))}`;
+    uiBlue.textContent = `BLUE  Sectors ${blueSectors} | Units ${blueUnits} | Fort ${Math.max(0, Math.floor(this.baseBlue.hp))}`;
+    uiRed.textContent = `RED   Sectors ${redSectors} | Units ${redUnits} | Fort ${Math.max(0, Math.floor(this.baseRed.hp))}`;
+
+    const sel = this.selected.filter(u => u.hp > 0);
+    if (!sel.length) {
+      selectionInfo.textContent = 'Ничего не выбрано';
+    } else {
+      const tanks = sel.filter(u => u.type === 'tank').length;
+      const rocks = sel.filter(u => u.type === 'rocketeer').length;
+      const inf = sel.filter(u => u.type === 'infantry').length;
+      const avgHp = Math.floor(sel.reduce((s, u) => s + (u.hp / u.maxHp), 0) / sel.length * 100);
+      selectionInfo.textContent = `Выбрано: ${sel.length}\nПехота: ${inf} | Ракетчик: ${rocks} | Танк: ${tanks}\nСредний HP: ${avgHp}%`;
+    }
+
+    const blueProgress = clamp((8 - this.production.blue) / 8, 0, 1);
+    const redProgress = clamp((8 - this.production.red) / 8, 0, 1);
+    if (prodBlueBar) prodBlueBar.style.width = `${Math.floor(blueProgress * 100)}%`;
+    if (prodRedBar) prodRedBar.style.width = `${Math.floor(redProgress * 100)}%`;
 
     if (this.baseBlue.hp <= 0 || this.baseRed.hp <= 0) {
       this.gameOver = true;

@@ -7,15 +7,54 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div id="ui">
-    <div class="title"><b>myzizi</b> — Z-style RTS prototype</div>
-    <div class="line">Синие: <span id="blueScore">0</span></div>
-    <div class="line">Красные: <span id="redScore">0</span></div>
-    <div id="hint">ЛКМ — выделение (рамкой), ПКМ — двигаться/атаковать</div>
-    <button id="pauseBtn">Пауза</button>
+  <div id="hudTop" class="panel">
+    <div class="brand">MYZIZI // Tactical Theatre</div>
+    <div id="blueScore" class="score blue">Синие: ...</div>
+    <div id="redScore" class="score red">Красные: ...</div>
+    <div id="hint" class="hint">Загрузка...</div>
   </div>
 
-  <canvas id="game" width="1200" height="700"></canvas>
+  <div id="layout">
+    <aside id="leftPanel" class="panel side">
+      <h3>Выделение</h3>
+      <div id="selectionInfo" class="mono">Ничего не выбрано</div>
+
+      <h3>Производство</h3>
+      <div class="prodRow">
+        <span>Blue queue</span>
+        <div class="bar"><i id="prodBlue"></i></div>
+      </div>
+      <div class="prodRow">
+        <span>Red queue</span>
+        <div class="bar"><i id="prodRed"></i></div>
+      </div>
+
+      <h3>Хоткеи</h3>
+      <ul class="keys">
+        <li><b>ЛКМ</b> рамка/клик</li>
+        <li><b>ПКМ</b> move/attack</li>
+        <li><b>E</b> высадить пилота из танка</li>
+        <li><b>S</b> стоп выбранным</li>
+      </ul>
+    </aside>
+
+    <main id="centerWrap">
+      <canvas id="game" width="1200" height="700"></canvas>
+    </main>
+
+    <aside id="rightPanel" class="panel side">
+      <h3>Команды</h3>
+      <div class="cmdGrid">
+        <button id="cmdMove">Move</button>
+        <button id="cmdAttack">Attack</button>
+        <button id="cmdStop">Stop</button>
+        <button id="cmdEject">Eject</button>
+      </div>
+      <button id="pauseBtn" class="pause">Пауза</button>
+      <div id="statusLine" class="mono status">READY</div>
+    </aside>
+  </div>
+
   <script src="game.js"></script>
 </body>
 </html>
