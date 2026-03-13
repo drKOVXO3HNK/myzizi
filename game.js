@@ -11,18 +11,23 @@ const pauseBtn = document.getElementById('pauseBtn');
 const TEAM = { BLUE: 'blue', RED: 'red', NEUTRAL: 'neutral' };
 
 const C = {
-  bgA: '#141a23', bgB: '#0f141c',
-  grid: '#243140',
   blue: '#49b0ff',
   blueSoft: '#89d0ff',
   red: '#ff6666',
   redSoft: '#ffb2b2',
   neutral: '#c2c8cf',
-  panel: '#0c1118d6',
   road: '#2e3741',
   roadLine: '#495462',
   shellBlue: '#b5e5ff',
   shellRed: '#ffd1d1',
+};
+
+const BIOMES = {
+  desert: { top: '#2b261f', bottom: '#1f1b15', tint: '#7d6a47aa' },
+  snow: { top: '#233040', bottom: '#18222f', tint: '#98b7d699' },
+  volcanic: { top: '#2a1d1d', bottom: '#191111', tint: '#8f4d4daa' },
+  swamp: { top: '#1c2a1d', bottom: '#121b12', tint: '#4d8f5faa' },
+  city: { top: '#1d232c', bottom: '#11161e', tint: '#6b7a8faa' },
 };
 
 const rand = (a, b) => Math.random() * (b - a) + a;
@@ -43,7 +48,7 @@ const imgTankRed = new Image();
 imgTankRed.src = './assets/tank_red.png';
 
 class Sector {
-  constructor(id, x, y, w, h, hasFactory = false, hasGarage = false) {
+  constructor(id, x, y, w, h, hasFactory = false, hasGarage = false, biome = 'city') {
     this.id = id;
     this.x = x;
     this.y = y;
@@ -52,9 +57,10 @@ class Sector {
     this.cx = x + w / 2;
     this.cy = y + h / 2;
     this.owner = TEAM.NEUTRAL;
-    this.capture = 0; // -100..100
+    this.capture = 0;
     this.hasFactory = hasFactory;
     this.hasGarage = hasGarage;
+    this.biome = biome;
   }
 
   contains(x, y) {
@@ -72,10 +78,7 @@ class Sector {
       }
     }
 
-    if (blue !== red) {
-      const speed = 22;
-      this.capture = clamp(this.capture + (blue - red) * speed * dt, -100, 100);
-    }
+    if (blue !== red) this.capture = clamp(this.capture + (blue - red) * 22 * dt, -100, 100);
 
     if (this.capture >= 100) this.owner = TEAM.BLUE;
     else if (this.capture <= -100) this.owner = TEAM.RED;
@@ -83,14 +86,17 @@ class Sector {
   }
 
   draw() {
-    const t = this.owner === TEAM.BLUE ? '#13365499' : this.owner === TEAM.RED ? '#5b232399' : '#2b344180';
-    ctx.fillStyle = t;
+    const biomeTint = BIOMES[this.biome].tint;
+    ctx.fillStyle = biomeTint;
     ctx.fillRect(this.x + 1, this.y + 1, this.w - 2, this.h - 2);
 
-    ctx.strokeStyle = '#ffffff1c';
+    const ownerTint = this.owner === TEAM.BLUE ? '#13365480' : this.owner === TEAM.RED ? '#5b232380' : '#2b344140';
+    ctx.fillStyle = ownerTint;
+    ctx.fillRect(this.x + 1, this.y + 1, this.w - 2, this.h - 2);
+
+    ctx.strokeStyle = '#ffffff1f';
     ctx.strokeRect(this.x, this.y, this.w, this.h);
 
-    // Flag pole
     const fx = this.cx;
     const fy = this.cy - 8;
     ctx.strokeStyle = '#dce5f0bb';
@@ -108,15 +114,14 @@ class Sector {
     ctx.closePath();
     ctx.fill();
 
-    // capture bar
     ctx.fillStyle = '#000a';
     ctx.fillRect(this.cx - 26, this.cy + 22, 52, 6);
     if (this.capture >= 0) {
       ctx.fillStyle = C.blue;
-      ctx.fillRect(this.cx, this.cy + 22, this.capture / 100 * 26, 6);
+      ctx.fillRect(this.cx, this.cy + 22, (this.capture / 100) * 26, 6);
     } else {
       ctx.fillStyle = C.red;
-      const w = Math.abs(this.capture / 100 * 26);
+      const w = Math.abs((this.capture / 100) * 26);
       ctx.fillRect(this.cx - w, this.cy + 22, w, 6);
     }
 
@@ -148,9 +153,7 @@ class Base {
     if (this.guardCd <= 0) {
       this.guardCd = 5;
       const own = game.units.filter(u => u.team === this.team && u.hp > 0).length;
-      if (own < 90) {
-        game.units.push(new Unit(this.team, this.x + rand(-20, 20), this.y + rand(-18, 18), 'infantry'));
-      }
+      if (own < 90) game.units.push(new Unit(this.team, this.x + rand(-20, 20), this.y + rand(-18, 18), 'infantry'));
     }
   }
 
@@ -181,19 +184,19 @@ class NeutralVehicle {
     this.y = y;
     this.type = type;
     this.r = 16;
-    this.hp = 1; // pseudo entity
+    this.hp = 1;
   }
 
   draw() {
     ctx.save();
     ctx.translate(this.x, this.y);
-    ctx.globalAlpha = 0.6;
+    ctx.globalAlpha = 0.62;
     ctx.fillStyle = '#d3d7df';
     ctx.beginPath();
     ctx.arc(0, 0, this.r + 4, 0, Math.PI * 2);
     ctx.fill();
-
     ctx.globalAlpha = 1;
+
     ctx.fillStyle = '#303846';
     ctx.fillRect(-16, -8, 32, 16);
     ctx.strokeStyle = '#d0d6df';
@@ -204,6 +207,94 @@ class NeutralVehicle {
     ctx.textAlign = 'center';
     ctx.fillText('NEUTRAL', 0, -15);
     ctx.restore();
+  }
+}
+
+class Turret {
+  constructor(sector) {
+    this.sector = sector;
+    this.x = sector.cx;
+    this.y = sector.cy - 34;
+    this.range = 180;
+    this.cooldown = 0.7;
+    this.cool = rand(0, 0.6);
+    this.hp = 9999;
+  }
+
+  update(dt, game) {
+    this.cool -= dt;
+    if (this.sector.owner === TEAM.NEUTRAL) return;
+    if (this.cool > 0) return;
+
+    let best = null;
+    let bestD = this.range * this.range;
+    for (const u of game.units) {
+      if (u.hp <= 0 || u.team === this.sector.owner) continue;
+      const dd = d2(this, u);
+      if (dd < bestD) {
+        bestD = dd;
+        best = u;
+      }
+    }
+
+    if (best) {
+      this.cool = this.cooldown;
+      game.projectiles.push(new Projectile({
+        team: this.sector.owner,
+        type: 'turret',
+        x: this.x,
+        y: this.y,
+      }, best, Math.floor(rand(12, 18))));
+    }
+  }
+
+  draw() {
+    const own = this.sector.owner;
+    const col = own === TEAM.BLUE ? C.blue : own === TEAM.RED ? C.red : '#7f8b97';
+
+    ctx.fillStyle = '#26303b';
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, 11, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = col;
+    ctx.fillRect(this.x - 2, this.y - 14, 4, 12);
+  }
+}
+
+class Particle {
+  constructor(x, y, col) {
+    this.x = x;
+    this.y = y;
+    this.vx = rand(-90, 90);
+    this.vy = rand(-90, 90);
+    this.life = rand(0.2, 0.6);
+    this.maxLife = this.life;
+    this.col = col;
+    this.dead = false;
+  }
+
+  update(dt) {
+    this.life -= dt;
+    if (this.life <= 0) {
+      this.dead = true;
+      return;
+    }
+    this.vx *= 0.96;
+    this.vy *= 0.96;
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+  }
+
+  draw() {
+    ctx.globalAlpha = this.life / this.maxLife;
+    ctx.fillStyle = this.col;
+    ctx.fillRect(this.x, this.y, 2, 2);
+    ctx.globalAlpha = 1;
   }
 }
 
@@ -265,12 +356,10 @@ class Unit {
     this.cool = Math.max(0, this.cool - dt);
     if (this.targetEntity && this.targetEntity.hp <= 0) this.targetEntity = null;
 
-    // Red AI, blue auto-fight only
     if (this.team === TEAM.RED && !this.targetEntity && !this.targetPos) {
       this.aiCd -= dt;
       if (this.aiCd <= 0) {
         this.aiCd = rand(0.8, 1.7);
-
         const neutralVehicle = game.getNearestNeutralVehicle(this.x, this.y);
         if (neutralVehicle && Math.random() < 0.25 && this.type === 'infantry') {
           this.setMove(neutralVehicle.x, neutralVehicle.y);
@@ -301,12 +390,10 @@ class Unit {
       const dy = this.targetEntity.y - this.y;
       this.heading = Math.atan2(dy, dx);
       const dist2 = d2(this, this.targetEntity);
-      if (dist2 > this.range * this.range) {
-        this.moveTo(this.targetEntity.x, this.targetEntity.y, dt);
-      } else if (this.cool <= 0) {
+      if (dist2 > this.range * this.range) this.moveTo(this.targetEntity.x, this.targetEntity.y, dt);
+      else if (this.cool <= 0) {
         this.cool = this.cooldown;
-        const dmg = Math.floor(rand(this.minDmg, this.maxDmg + 1));
-        game.projectiles.push(new Projectile(this, this.targetEntity, dmg));
+        game.projectiles.push(new Projectile(this, this.targetEntity, Math.floor(rand(this.minDmg, this.maxDmg + 1))));
       }
       return;
     }
@@ -320,7 +407,6 @@ class Unit {
       else this.moveTo(this.targetPos.x, this.targetPos.y, dt);
     }
 
-    // capture neutral vehicle with infantry only
     if (this.type === 'infantry') {
       const v = game.getNearestNeutralVehicle(this.x, this.y, 20);
       if (v) {
@@ -340,14 +426,12 @@ class Unit {
   }
 
   draw() {
-    // shadow
     ctx.fillStyle = '#00000058';
     ctx.beginPath();
     ctx.ellipse(this.x, this.y + 9, this.type === 'tank' ? 16 : 10, this.type === 'tank' ? 6 : 4, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    let img;
-    let size;
+    let img, size;
     if (this.type === 'tank') {
       img = this.team === TEAM.BLUE ? imgTankBlue : imgTankRed;
       size = 56;
@@ -361,9 +445,8 @@ class Unit {
     const offset = this.type === 'tank' ? Math.PI / 4 : 0;
     ctx.rotate(this.heading + offset);
 
-    if (img.complete) {
-      ctx.drawImage(img, -size / 2, -size / 2, size, size);
-    } else {
+    if (img.complete) ctx.drawImage(img, -size / 2, -size / 2, size, size);
+    else {
       ctx.fillStyle = this.team === TEAM.BLUE ? C.blue : C.red;
       ctx.beginPath();
       ctx.arc(0, 0, this.r, 0, Math.PI * 2);
@@ -400,11 +483,11 @@ class Projectile {
     this.y = from.y;
     this.target = target;
     this.dmg = dmg;
-    this.speed = from.type === 'tank' ? 360 : from.type === 'rocketeer' ? 320 : 460;
+    this.speed = from.type === 'tank' ? 360 : from.type === 'rocketeer' ? 320 : from.type === 'turret' ? 420 : 460;
     this.dead = false;
   }
 
-  update(dt) {
+  update(dt, game) {
     if (!this.target || this.target.hp <= 0) {
       this.dead = true;
       return;
@@ -418,6 +501,7 @@ class Projectile {
     if (d <= step) {
       this.target.hp -= this.dmg;
       this.dead = true;
+      game.spawnImpact(this.target.x, this.target.y, this.team === TEAM.BLUE ? '#8ed4ff' : '#ffb0b0');
       return;
     }
 
@@ -427,7 +511,7 @@ class Projectile {
 
   draw() {
     const col = this.team === TEAM.BLUE ? C.shellBlue : C.shellRed;
-    const r = this.type === 'tank' ? 3.2 : this.type === 'rocketeer' ? 2.8 : 2.2;
+    const r = this.type === 'tank' ? 3.2 : this.type === 'rocketeer' ? 2.8 : this.type === 'turret' ? 2.5 : 2.2;
     ctx.beginPath();
     ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
     ctx.fillStyle = col;
@@ -441,13 +525,14 @@ class Game {
     this.units = [];
     this.projectiles = [];
     this.neutralVehicles = [];
+    this.turrets = [];
     this.selected = [];
     this.drag = { active: false, start: null, end: null };
+    this.particles = [];
+    this.craters = [];
 
     this.paused = false;
     this.gameOver = false;
-
-    this.minimap = { x: W - 228, y: H - 150, w: 210, h: 132 };
 
     this.production = {
       blue: 8,
@@ -462,7 +547,7 @@ class Game {
     this.setupArmies();
     this.bindInput();
 
-    uiHint.textContent = 'В духе Z: контролируй секторы, ускоряй производство, захватывай нейтральные танки. ЛКМ — рамка, ПКМ — приказ.';
+    uiHint.textContent = 'Z-style: сектора, турели, захват техники. ЛКМ — рамка, ПКМ — приказ, E — высадить пилота из выбранного танка.';
   }
 
   setupMap() {
@@ -474,23 +559,24 @@ class Game {
     const sw = (W - marginX * 2 - gap * (cols - 1)) / cols;
     const sh = (H - marginY * 2 - gap * (rows - 1)) / rows;
 
+    const biomeRows = ['desert', 'snow', 'volcanic', 'swamp', 'city'];
+
     let id = 0;
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const x = marginX + c * (sw + gap);
         const y = marginY + r * (sh + gap);
-
         const hasFactory = (r === 1 && (c === 1 || c === 2)) || (r === 0 && c === 1) || (r === 2 && c === 2);
         const hasGarage = (r === 1 && (c === 0 || c === 3));
-
-        this.sectors.push(new Sector(id++, x, y, sw, sh, hasFactory, hasGarage));
+        const biome = biomeRows[(c + r) % biomeRows.length];
+        const s = new Sector(id++, x, y, sw, sh, hasFactory, hasGarage, biome);
+        this.sectors.push(s);
       }
     }
 
     this.baseBlue = new Base(TEAM.BLUE, 84, H / 2);
     this.baseRed = new Base(TEAM.RED, W - 84, H / 2);
 
-    // initial side control
     this.sectors.forEach(s => {
       if (s.cx < W * 0.34) {
         s.owner = TEAM.BLUE;
@@ -501,9 +587,15 @@ class Game {
       }
     });
 
-    // Neutral vehicles on center lanes
     this.neutralVehicles.push(new NeutralVehicle(W * 0.5, H * 0.25));
     this.neutralVehicles.push(new NeutralVehicle(W * 0.5, H * 0.75));
+
+    // Turrets on key sectors
+    const turretSectorIds = [1, 2, 5, 6, 9, 10];
+    for (const id of turretSectorIds) {
+      const sec = this.sectors.find(s => s.id === id);
+      if (sec) this.turrets.push(new Turret(sec));
+    }
   }
 
   setupArmies() {
@@ -518,13 +610,11 @@ class Game {
 
     canvas.addEventListener('mousedown', e => {
       const p = this.getMouse(e);
-
       if (e.button === 0) {
         this.drag.active = true;
         this.drag.start = p;
         this.drag.end = p;
       }
-
       if (e.button === 2) {
         const enemy = this.findEnemyEntityAt(p.x, p.y);
         if (enemy) this.issueAttack(enemy);
@@ -533,8 +623,7 @@ class Game {
     });
 
     canvas.addEventListener('mousemove', e => {
-      if (!this.drag.active) return;
-      this.drag.end = this.getMouse(e);
+      if (this.drag.active) this.drag.end = this.getMouse(e);
     });
 
     canvas.addEventListener('mouseup', e => {
@@ -545,7 +634,6 @@ class Game {
       const b = this.drag.end;
       const w = Math.abs(a.x - b.x);
       const h = Math.abs(a.y - b.y);
-
       this.clearSelection();
 
       if (w < 6 && h < 6) {
@@ -559,7 +647,6 @@ class Game {
         const y1 = Math.min(a.y, b.y);
         const x2 = Math.max(a.x, b.x);
         const y2 = Math.max(a.y, b.y);
-
         for (const u of this.units) {
           if (u.team !== TEAM.BLUE || u.hp <= 0) continue;
           if (u.x >= x1 && u.x <= x2 && u.y >= y1 && u.y <= y2) {
@@ -570,10 +657,31 @@ class Game {
       }
     });
 
+    document.addEventListener('keydown', e => {
+      if (e.key.toLowerCase() === 'e') this.ejectSelectedTanks();
+    });
+
     pauseBtn.addEventListener('click', () => {
       this.paused = !this.paused;
       pauseBtn.textContent = this.paused ? 'Продолжить' : 'Пауза';
     });
+  }
+
+  ejectSelectedTanks() {
+    const tanks = this.selected.filter(u => u.type === 'tank' && u.team === TEAM.BLUE && u.hp > 0);
+    for (const t of tanks) {
+      this.neutralVehicles.push(new NeutralVehicle(t.x + rand(-4, 4), t.y + rand(-4, 4), 'tank'));
+      this.units.push(new Unit(TEAM.BLUE, t.x + rand(-12, 12), t.y + rand(-12, 12), 'infantry'));
+      t.hp = 0;
+    }
+    this.units = this.units.filter(u => u.hp > 0);
+    this.clearSelection();
+  }
+
+  spawnImpact(x, y, color) {
+    for (let i = 0; i < 12; i++) this.particles.push(new Particle(x, y, color));
+    this.craters.push({ x: x + rand(-2, 2), y: y + rand(-2, 2), r: rand(6, 11), life: 9 });
+    if (this.craters.length > 50) this.craters.shift();
   }
 
   getMouse(e) {
@@ -603,7 +711,6 @@ class Game {
   findEnemyEntityAt(x, y) {
     let best = null;
     let bestD = 1e9;
-
     for (const u of this.units) {
       if (u.team === TEAM.BLUE || u.hp <= 0) continue;
       const dd = d2({ x, y }, u);
@@ -612,23 +719,17 @@ class Game {
         bestD = dd;
       }
     }
-
     if (best) return best;
 
     const b = this.baseRed;
-    if (x >= b.x - b.w / 2 && x <= b.x + b.w / 2 && y >= b.y - b.h / 2 && y <= b.y + b.h / 2 && b.hp > 0) {
-      return b;
-    }
-
+    if (x >= b.x - b.w / 2 && x <= b.x + b.w / 2 && y >= b.y - b.h / 2 && y <= b.y + b.h / 2 && b.hp > 0) return b;
     return null;
   }
 
   issueMove(x, y) {
     if (!this.selected.length) return;
-
     const cols = Math.ceil(Math.sqrt(this.selected.length));
     const spacing = 22;
-
     this.selected.forEach((u, i) => {
       const row = Math.floor(i / cols);
       const col = i % cols;
@@ -664,17 +765,14 @@ class Game {
   getObjective(team) {
     const neutral = this.sectors.find(s => s.owner === TEAM.NEUTRAL);
     if (neutral) return { x: neutral.cx, y: neutral.cy };
-
     const enemySector = this.sectors.find(s => s.owner !== team);
     if (enemySector) return { x: enemySector.cx, y: enemySector.cy };
-
     return team === TEAM.BLUE ? { x: this.baseRed.x, y: this.baseRed.y } : { x: this.baseBlue.x, y: this.baseBlue.y };
   }
 
   updateProduction(dt) {
     const blueSectors = this.sectors.filter(s => s.owner === TEAM.BLUE).length;
     const redSectors = this.sectors.filter(s => s.owner === TEAM.RED).length;
-
     const blueFactories = this.sectors.filter(s => s.owner === TEAM.BLUE && s.hasFactory).length;
     const redFactories = this.sectors.filter(s => s.owner === TEAM.RED && s.hasFactory).length;
 
@@ -684,15 +782,17 @@ class Game {
     if (this.production.blue <= 0) {
       this.production.blue = 8;
       const type = this.production.queueBlue[this.production.idxBlue++ % this.production.queueBlue.length];
-      const count = this.units.filter(u => u.team === TEAM.BLUE && u.hp > 0).length;
-      if (count < 120) this.units.push(new Unit(TEAM.BLUE, this.baseBlue.x + rand(-18, 18), this.baseBlue.y + rand(-18, 18), type));
+      if (this.units.filter(u => u.team === TEAM.BLUE && u.hp > 0).length < 120) {
+        this.units.push(new Unit(TEAM.BLUE, this.baseBlue.x + rand(-18, 18), this.baseBlue.y + rand(-18, 18), type));
+      }
     }
 
     if (this.production.red <= 0) {
       this.production.red = 8;
       const type = this.production.queueRed[this.production.idxRed++ % this.production.queueRed.length];
-      const count = this.units.filter(u => u.team === TEAM.RED && u.hp > 0).length;
-      if (count < 120) this.units.push(new Unit(TEAM.RED, this.baseRed.x + rand(-18, 18), this.baseRed.y + rand(-18, 18), type));
+      if (this.units.filter(u => u.team === TEAM.RED && u.hp > 0).length < 120) {
+        this.units.push(new Unit(TEAM.RED, this.baseRed.x + rand(-18, 18), this.baseRed.y + rand(-18, 18), type));
+      }
     }
   }
 
@@ -700,17 +800,24 @@ class Game {
     if (this.paused || this.gameOver) return;
 
     for (const s of this.sectors) s.update(dt, this.units);
-
     this.updateProduction(dt);
 
     this.baseBlue.update(dt, this);
     this.baseRed.update(dt, this);
 
+    for (const t of this.turrets) t.update(dt, this);
+
     for (const u of this.units) u.update(dt, this);
     this.units = this.units.filter(u => u.hp > 0);
 
-    for (const p of this.projectiles) p.update(dt);
+    for (const p of this.projectiles) p.update(dt, this);
     this.projectiles = this.projectiles.filter(p => !p.dead);
+
+    for (const p of this.particles) p.update(dt);
+    this.particles = this.particles.filter(p => !p.dead);
+
+    for (const c of this.craters) c.life -= dt;
+    this.craters = this.craters.filter(c => c.life > 0);
 
     const blueUnits = this.units.filter(u => u.team === TEAM.BLUE).length;
     const redUnits = this.units.filter(u => u.team === TEAM.RED).length;
@@ -728,59 +835,55 @@ class Game {
 
   drawBackground() {
     const grad = ctx.createLinearGradient(0, 0, 0, H);
-    grad.addColorStop(0, C.bgA);
-    grad.addColorStop(1, C.bgB);
+    grad.addColorStop(0, '#141a23');
+    grad.addColorStop(1, '#0f141c');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
 
-    // roads (to imitate Z sector connectivity)
     ctx.lineWidth = 12;
     ctx.strokeStyle = C.road;
     ctx.beginPath();
-    ctx.moveTo(70, H * 0.33);
-    ctx.lineTo(W - 70, H * 0.33);
-    ctx.moveTo(70, H * 0.66);
-    ctx.lineTo(W - 70, H * 0.66);
-    ctx.moveTo(W * 0.5, 40);
-    ctx.lineTo(W * 0.5, H - 40);
+    ctx.moveTo(70, H * 0.33); ctx.lineTo(W - 70, H * 0.33);
+    ctx.moveTo(70, H * 0.66); ctx.lineTo(W - 70, H * 0.66);
+    ctx.moveTo(W * 0.5, 40); ctx.lineTo(W * 0.5, H - 40);
     ctx.stroke();
 
     ctx.lineWidth = 2;
     ctx.strokeStyle = C.roadLine;
     ctx.setLineDash([8, 8]);
     ctx.beginPath();
-    ctx.moveTo(70, H * 0.33);
-    ctx.lineTo(W - 70, H * 0.33);
-    ctx.moveTo(70, H * 0.66);
-    ctx.lineTo(W - 70, H * 0.66);
-    ctx.moveTo(W * 0.5, 40);
-    ctx.lineTo(W * 0.5, H - 40);
+    ctx.moveTo(70, H * 0.33); ctx.lineTo(W - 70, H * 0.33);
+    ctx.moveTo(70, H * 0.66); ctx.lineTo(W - 70, H * 0.66);
+    ctx.moveTo(W * 0.5, 40); ctx.lineTo(W * 0.5, H - 40);
     ctx.stroke();
     ctx.setLineDash([]);
 
-    ctx.strokeStyle = C.grid;
+    ctx.strokeStyle = '#243140';
     ctx.lineWidth = 1;
     for (let x = 0; x < W; x += 40) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, H);
-      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
     }
     for (let y = 0; y < H; y += 40) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    }
+
+    for (const c of this.craters) {
+      ctx.globalAlpha = clamp(c.life / 9, 0, 0.35);
+      ctx.fillStyle = '#111';
       ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(W, y);
-      ctx.stroke();
+      ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
     }
   }
 
   worldToMini(x, y) {
-    const m = this.minimap;
-    return { x: m.x + x / W * m.w, y: m.y + y / H * m.h };
+    const m = { x: W - 228, y: H - 150, w: 210, h: 132 };
+    return { x: m.x + (x / W) * m.w, y: m.y + (y / H) * m.h };
   }
 
   drawMinimap() {
-    const m = this.minimap;
+    const m = { x: W - 228, y: H - 150, w: 210, h: 132 };
     ctx.fillStyle = '#0b1017e8';
     ctx.fillRect(m.x, m.y, m.w, m.h);
     ctx.strokeStyle = '#33506a';
@@ -801,25 +904,20 @@ class Game {
       ctx.fillStyle = u.team === TEAM.BLUE ? C.blue : C.red;
       ctx.fillRect(p.x, p.y, 2, 2);
     }
-
-    for (const v of this.neutralVehicles) {
-      const p = this.worldToMini(v.x, v.y);
-      ctx.fillStyle = '#d8dee8';
-      ctx.fillRect(p.x - 1, p.y - 1, 3, 3);
-    }
   }
 
   draw() {
     this.drawBackground();
 
     for (const s of this.sectors) s.draw();
-
     this.baseBlue.draw();
     this.baseRed.draw();
 
+    for (const t of this.turrets) t.draw();
     for (const v of this.neutralVehicles) v.draw();
     for (const u of this.units) u.draw();
     for (const p of this.projectiles) p.draw();
+    for (const p of this.particles) p.draw();
 
     if (this.drag.active) {
       const a = this.drag.start;
@@ -828,7 +926,6 @@ class Game {
       const y = Math.min(a.y, b.y);
       const w = Math.abs(a.x - b.x);
       const h = Math.abs(a.y - b.y);
-
       ctx.fillStyle = '#9bd0ff20';
       ctx.fillRect(x, y, w, h);
       ctx.strokeStyle = '#9bd0ff';
